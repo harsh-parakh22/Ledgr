@@ -94,6 +94,6 @@ Passed!  - Failed: 0, Passed: 5, Skipped: 0, Total: 5 - Ledgr.Tests.dll (net8.0)
 ## 👤 Author
 
 **Harsh Parakh**  
-- LinkedIn: [linkedin.com/in/harshparakh](https://linkedin.com)  
+- LinkedIn: [linkedin.com/in/harsh-parakh22](https://www.linkedin.com/in/harsh-parakh22/)  
 - GitHub: [@harsh-parakh22](https://github.com/harsh-parakh22)
 
