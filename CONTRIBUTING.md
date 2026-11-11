@@ -1,56 +1,57 @@
-# Contributing Guidelines & Engineering Standards — Ledgr
+# Contributing
 
-Thank you for contributing to **Ledgr**! To maintain enterprise software quality aligned with MNC and product company standards, please adhere to these guidelines.
+## Setup
 
----
-
-## 1. Branching Model
-
-We follow a **Trunk-Based / Feature-Branch Workflow**:
-- `main`: Production-ready, always building and passing tests.
-- `feat/<feature-name>`: New features (e.g. `feat/multi-location-routing`).
-- `test/<test-name>`: Test suite additions (e.g. `test/concurrency-order-race`).
-- `fix/<bug-name>`: Bug fixes and patches.
-
----
-
-## 2. Commit Message Standards (Conventional Commits)
-
-Commit messages must follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
-
-```
-<type>(<optional scope>): <description>
-
-[optional body]
+```bash
+dotnet tool restore
+dotnet build
 ```
 
-### Types:
-- `feat`: A new user-facing or API feature
-- `test`: Adding or refactoring tests (strict TDD commits)
-- `fix`: A bug fix or invariant patch
-- `docs`: Documentation updates or design diagrams
-- `refactor`: Code changes that neither fix a bug nor add a feature
-- `ci`: CI/CD workflow modifications
+Requires the .NET 8 SDK. The pinned version is in `global.json`; any 8.0.1xx or newer feature band
+is accepted.
 
-**Examples:**
-- `test(orders): add unit test for concurrent stock reservation failure`
-- `feat(inventory): implement double-entry stock movement ledger endpoint`
-- `docs(arch): add mermaid sequence diagram for order allocation`
+## Branches
 
----
+- `main` — releasable. Every commit on it builds and passes the suite.
+- `develop` — integration branch.
+- `feat/<name>`, `fix/<name>`, `test/<name>` — work in progress.
 
-## 3. Strict TDD Workflow Rule
+## Commits
 
-When adding a new feature or constraint:
-1. **Commit 1 (RED):** Write the failing test in `Ledgr.Tests`.
-2. **Commit 2 (GREEN):** Implement the minimal code in `Ledgr.Api` to pass the test.
-3. **Commit 3 (REFACTOR):** Clean up, format, and optimize without breaking tests.
+Conventional Commits, one logical change per commit:
 
----
+```
+feat(orders): reject duplicate lines with a merged quantity
+fix(inventory): keep stock unchanged when the write-off is rejected
+test(orders): cover a failing second line rolling back the first
+docs(api): document the idempotency header
+```
 
-## 4. C# Code Formatting & Style
-- Follow official Microsoft C# conventions.
-- Use explicit types for domain records and DTOs (`record`).
-- Prefer async/await all the way through (`Task<T>`, `CancellationToken`).
-- Nullable reference types (`<Nullable>enable</Nullable>`) are enforced across all projects.
+## Before opening a pull request
 
+```bash
+dotnet build -c Release
+dotnet test
+dotnet format --verify-no-changes --exclude Ledgr.Api/Data/Migrations
+```
+
+CI runs the same three steps, plus a 90% line-coverage floor on application code.
+
+## Code
+
+- File-scoped namespaces, nullable enabled, warnings are errors.
+- One type per file, except for small related records such as the DTOs.
+- Comments explain a decision, not a statement. `// increment the counter` is noise;
+  `// bumped here so a new write path cannot forget the concurrency token` is not.
+- New business rule: write the failing test first, then the smallest change that makes it pass.
+- Do not bypass `Product.ApplyMovement` to change stock. If a new flow needs one, add a method
+  there.
+
+## Adding a migration
+
+```bash
+dotnet ef migrations add <Name> --project Ledgr.Api --output-dir Data/Migrations
+```
+
+Review the generated SQL before committing it. EF's design-time factory uses `ledgr.design.db`, so
+the command never touches your working database.

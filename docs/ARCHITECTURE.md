@@ -1,102 +1,79 @@
-# Technical Architecture & System Design Document (TDD / HLD) — Ledgr
+# Architecture
 
-**Document Version:** 1.0.0  
-**Status:** Approved  
-**Author:** Harsh Parakh  
+## Shape
 
----
+One web project and one test project. Controllers call services, services use `ApplicationDbContext`
+directly, and EF Core talks to SQLite. There is no repository layer: at this size it would only add
+a pass-through.
 
-## 1. Architectural Overview & Style
+| Folder | Responsibility |
+| :--- | :--- |
+| `Controllers` | Bind input, call one service method, return a status code. No business rules. |
+| `Services` | Transactions, validation, mapping to DTOs. |
+| `Models` | Entities and the ledger rules. |
+| `Data` | `DbContext`, migrations, seeding, design-time factory. |
+| `Dtos` | Record types for requests and responses; entities never leave the process. |
+| `Middleware` | Problem details, security headers. |
 
-Ledgr is engineered following the **Clean Architecture / N-Tier Domain-Centric Pattern** with explicit separation between **Domain Entities**, **Business Services**, **Persistence (EF Core)**, and **API/Presentation Layers**.
+## Request flow: placing an order
 
-```mermaid
-graph TD
-    UI["Frontend Client (Vanilla JS / Bootstrap / Fetch API)"] -->|HTTP / JSON| API["API Layer (ASP.NET Core Controllers)"]
-    API -->|RFC 7807 Exception Handling| MW["Global Exception Middleware"]
-    API -->|DTOs & Commands| Services["Service Layer (Domain Rules & Transactions)"]
-    Services -->|Entity Framework Core 8| Data["Data Layer (ApplicationDbContext)"]
-    Data -->|SQL Queries & Locks| DB[("SQL Server / Relational DB")]
+1. `[ApiController]` validates the body. Invalid requests never reach the service.
+2. `OrderService` normalises the idempotency key, then returns the existing order if the key was
+   already used.
+3. Duplicate product lines are merged; the original line order is kept.
+4. A transaction is opened and the referenced products are loaded.
+5. Unknown or inactive products are rejected before any stock changes.
+6. Each line calls `Product.ApplyMovement`, which validates the delta, appends the movement and
+   updates the quantity in one step.
+7. `SaveChanges`, then commit. A concurrency failure rolls back and is reported as `409`.
 
-    subgraph ServiceLayer ["Service Layer Scope"]
-        IProductService["IProductService"]
-        IInventoryService["IInventoryService"]
-        IOrderService["IOrderService"]
-        IDashboardService["IDashboardService"]
-    end
-```
+## Concurrency
 
----
+A transaction gives atomicity, not mutual exclusion. Two requests can both read stock of 5, both
+pass the check, and both write 4. The second write would silently erase the first.
 
-## 2. Concurrency & Transaction Boundary Design
+The guard is an optimistic concurrency token:
 
-### 2.1 The Race Condition Threat (Double-Spend / Overselling)
-In an e-commerce or retail fulfillment engine, concurrent checkout requests for the same SKU can cause overselling:
+- `Product.Version` and `Order.Version` are configured with `IsConcurrencyToken()`.
+- `ApplicationDbContext` increments the version of every modified `Product` or `Order` in
+  `SaveChanges`, so no new write path can forget to participate.
+- EF adds the original version to the `UPDATE` predicate. If another transaction got there first,
+  zero rows match, EF raises `DbUpdateConcurrencyException`, and the service turns it into
+  `StockConflictException` (HTTP 409).
 
-```
-Thread A: Reads Stock = 1
-Thread B: Reads Stock = 1
-Thread A: Decrements (1 - 1 = 0) and commits.
-Thread B: Decrements (1 - 1 = 0) and commits.
-Result: 2 orders confirmed for 1 physical unit! (Stockout deficit)
-```
+The database also enforces `QuantityOnHand >= 0`, so a bug that bypasses the service still cannot
+produce negative stock.
 
-### 2.2 Ledgr Concurrency Resolution
-Ledgr enforces **Atomic Unit of Work with Database Transactions**:
-1. Order creation initiates an explicit `IDbContextTransaction` via `BeginTransactionAsync()`.
-2. The `IExecutionStrategy` pattern handles transient connection retries cleanly.
-3. Inventory balances are evaluated and updated within the transaction boundary.
-4. If validation fails for *any* line item, `RollbackAsync()` is invoked automatically, preventing partial allocations.
+## Ledger invariants
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Customer as Client / Webhook
-    participant OrderCtrl as OrdersController
-    participant OrderSvc as OrderService
-    participant DbContext as ApplicationDbContext
-    participant Database as Relational DB
+Every state change must satisfy:
 
-    Customer->>OrderCtrl: POST /api/Orders (CustomerName, Items[])
-    OrderCtrl->>OrderSvc: CreateOrderAsync(dto)
-    OrderSvc->>DbContext: BeginTransactionAsync()
-    OrderSvc->>DbContext: Fetch Products for all Items (Tracking)
-    loop Validate & Allocate
-        alt Requested Qty > QuantityOnHand
-            OrderSvc-->>OrderCtrl: Throw InsufficientStockException
-            OrderCtrl-->>Customer: 409 Conflict (RFC 7807 ProblemDetails)
-            Note over OrderSvc,Database: Automatic Transaction Rollback
-        else Stock Available
-            OrderSvc->>DbContext: product.QuantityOnHand -= requestedQty
-            OrderSvc->>DbContext: Add InventoryMovement(Delta = -requestedQty)
-            OrderSvc->>DbContext: Add Order & OrderItems
-        end
-    end
-    OrderSvc->>DbContext: SaveChangesAsync()
-    OrderSvc->>DbContext: CommitTransactionAsync()
-    OrderSvc-->>OrderCtrl: Return OrderDto
-    OrderCtrl-->>Customer: 201 Created (Order Details + OrderNumber)
-```
+1. `NewQuantity = PreviousQuantity + QuantityChange`
+2. `Product.QuantityOnHand = sum of that product's movements`
+3. `QuantityOnHand >= 0` at all times
 
----
+`InventoryMovement.Create` computes the snapshots from the product it is given, so the first two
+cannot drift. Movements are append-only: `SaveChanges` throws if one is modified or deleted.
+Reversals are new rows (`OrderCancel`), never edits.
 
-## 3. Component Architecture & Responsibilities
+## Why SQLite
 
-| Component | Namespace | Responsibility |
-| :--- | :--- | :--- |
-| **`Models`** | `Ledgr.Api.Models` | Pure domain entities (`Product`, `InventoryMovement`, `Order`, `OrderItem`). |
-| **`DTOs`** | `Ledgr.Api.DTOs` | Immutable record structures (`record`) for strong typed API input/output validation. |
-| **`Data`** | `Ledgr.Api.Data` | EF Core DbContext, entity fluent configurations, indexes, precision definitions, and database seeder. |
-| **`Services`** | `Ledgr.Api.Services` | Core business logic, transaction isolation, stock validation, and ledger invariant enforcement. |
-| **`Middleware`** | `Ledgr.Api.Middleware` | Centralized exception handling formatting standard RFC 7807 JSON responses. |
-| **`Controllers`** | `Ledgr.Api.Controllers` | Thin REST controllers delegating to domain services. |
+The application needs a relational database with transactions and check constraints, not a
+particular vendor. SQLite keeps the repository runnable with one command and lets the tests use the
+same provider as the application, which is what the previous in-memory setup could not do.
 
----
+The cost is that writers are serialised, and decimal values are stored as text. Two consequences
+are visible in the code: totals are summed in memory to stay exact, and a multi-node deployment
+would need a server database plus a retry policy.
 
-## 4. Error Handling Architecture (RFC 7807)
-All domain errors inherit from `LedgrException` with explicit HTTP status codes:
-- `ProductNotFoundException` $\rightarrow$ `404 Not Found`
-- `InsufficientStockException` $\rightarrow$ `409 Conflict`
-- `InactiveProductException` $\rightarrow$ `400 Bad Request`
-- `DuplicateSkuException` $\rightarrow$ `409 Conflict`
+## Trade-offs
 
+- **No repository abstraction.** Services depend on EF Core. A second data source would justify
+  one; a single one does not.
+- **Domain exceptions in `Models`.** `InventoryMovement` throws `InsufficientStockException`
+  directly. With one project, mapping exceptions at the edge is simpler than a result type on
+  every call.
+- **No API versioning yet.** One consumer, one deployment. Add a version prefix before external
+  clients appear.
+- **UI without a build step.** Plain ES modules and Bootstrap from `wwwroot`. A framework would be
+  more code, not less, for three screens.
