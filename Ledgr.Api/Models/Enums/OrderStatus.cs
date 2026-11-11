@@ -1,9 +1,7 @@
-namespace Ledgr.Api.Models.Enums;
+namespace Ledgr.Api.Models;
 
 public enum OrderStatus
 {
-    Pending = 1,
-    Confirmed = 2,
-    Cancelled = 3
+    Confirmed = 1,
+    Cancelled = 2
 }
-

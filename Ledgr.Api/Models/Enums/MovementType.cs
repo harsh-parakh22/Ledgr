@@ -1,10 +1,10 @@
-namespace Ledgr.Api.Models.Enums;
+namespace Ledgr.Api.Models;
 
 public enum MovementType
 {
-    StockIn = 1,        // Restock / Supplier PO received
-    OrderFulfill = 2,   // Reserved and deducted for a customer order
-    Adjustment = 3,     // Manual cycle count correction
-    WriteOff = 4        // Damaged, expired, or lost goods
+    StockIn = 1,
+    OrderFulfill = 2,
+    Adjustment = 3,
+    WriteOff = 4,
+    OrderCancel = 5
 }
-

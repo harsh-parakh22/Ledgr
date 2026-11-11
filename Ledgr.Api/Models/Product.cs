@@ -1,44 +1,49 @@
-using System.ComponentModel.DataAnnotations;
-using Microsoft.EntityFrameworkCore;
-
 namespace Ledgr.Api.Models;
 
-[Index(nameof(Sku), IsUnique = true)]
 public class Product
 {
     public int Id { get; set; }
 
-    [Required]
-    [StringLength(50)]
     public string Sku { get; set; } = string.Empty;
 
-    [Required]
-    [StringLength(150)]
     public string Name { get; set; } = string.Empty;
 
-    [StringLength(500)]
-    public string Description { get; set; } = string.Empty;
+    public string? Description { get; set; }
 
-    [Required]
-    [StringLength(80)]
-    public string Category { get; set; } = "General";
+    public string Category { get; set; } = string.Empty;
 
-    [Range(0.01, 1000000.00)]
-    [Precision(18, 2)]
     public decimal UnitPrice { get; set; }
 
-    public int QuantityOnHand { get; set; }
+    public int QuantityOnHand { get; private set; }
 
-    public int ReorderLevel { get; set; } = 5;
+    public int ReorderLevel { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    public int Version { get; set; }
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime? UpdatedAtUtc { get; set; }
 
-    // Navigation
-    public ICollection<InventoryMovement> Movements { get; set; } = new List<InventoryMovement>();
-    public ICollection<OrderItem> OrderItems { get; set; } = new List<OrderItem>();
-}
+    public ICollection<InventoryMovement> Movements { get; } = new List<InventoryMovement>();
 
+    public ICollection<OrderItem> OrderItems { get; } = new List<OrderItem>();
+
+    public bool IsLowStock => QuantityOnHand <= ReorderLevel;
+
+    /// <summary>
+    /// Changes stock and records the matching ledger entry. Every quantity change in the
+    /// application goes through here, so on-hand stock and its history cannot drift apart.
+    /// </summary>
+    public InventoryMovement ApplyMovement(int quantityChange, MovementType type, string reason, string? referenceId)
+    {
+        var movement = InventoryMovement.Create(this, quantityChange, type, reason, referenceId);
+
+        QuantityOnHand = movement.NewQuantity;
+        UpdatedAtUtc = movement.CreatedAtUtc;
+        Movements.Add(movement);
+
+        return movement;
+    }
+}

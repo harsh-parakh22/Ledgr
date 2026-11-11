@@ -1,98 +1,56 @@
-using Microsoft.EntityFrameworkCore;
 using Ledgr.Api.Models;
-using Ledgr.Api.Models.Enums;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ledgr.Api.Data;
 
 public static class DbInitializer
 {
-    public static async Task SeedAsync(ApplicationDbContext context)
+    public static async Task SeedAsync(ApplicationDbContext database, CancellationToken cancellationToken = default)
     {
-        // For SqlServer migrations or In-Memory database ensuring created
-        await context.Database.EnsureCreatedAsync();
-
-        if (await context.Products.AnyAsync())
+        if (await database.Products.AnyAsync(cancellationToken))
         {
-            return; // DB already seeded
+            return;
         }
 
         var products = new List<Product>
         {
-            new()
-            {
-                Sku = "SKU-LOGI-MX3S",
-                Name = "Logitech MX Master 3S Wireless Mouse",
-                Category = "Peripherals",
-                Description = "Ergonomic quiet click 8K DPI wireless mouse",
-                UnitPrice = 99.99m,
-                QuantityOnHand = 45,
-                ReorderLevel = 10,
-                IsActive = true
-            },
-            new()
-            {
-                Sku = "SKU-KCH-K2V2",
-                Name = "Keychron K2 V2 Mechanical Keyboard",
-                Category = "Peripherals",
-                Description = "75% layout wireless mechanical keyboard with Gateron Brown switches",
-                UnitPrice = 79.50m,
-                QuantityOnHand = 8, // Low stock! Below reorder level of 10
-                ReorderLevel = 10,
-                IsActive = true
-            },
-            new()
-            {
-                Sku = "SKU-DELL-U2723",
-                Name = "Dell UltraSharp 27 4K USB-C Hub Monitor",
-                Category = "Displays",
-                Description = "27-inch 4K IPS Black monitor with 90W power delivery",
-                UnitPrice = 579.00m,
-                QuantityOnHand = 14,
-                ReorderLevel = 5,
-                IsActive = true
-            },
-            new()
-            {
-                Sku = "SKU-ANKR-737",
-                Name = "Anker 737 Power Bank (PowerCore 24K)",
-                Category = "Accessories",
-                Description = "24,000mAh 140W 3-port portable charger with smart digital display",
-                UnitPrice = 149.99m,
-                QuantityOnHand = 3, // Critical low stock!
-                ReorderLevel = 8,
-                IsActive = true
-            },
-            new()
-            {
-                Sku = "SKU-SNY-WH1000XM5",
-                Name = "Sony WH-1000XM5 Noise Canceling Headphones",
-                Category = "Audio",
-                Description = "Industry leading noise canceling wireless headphones",
-                UnitPrice = 348.00m,
-                QuantityOnHand = 22,
-                ReorderLevel = 6,
-                IsActive = true
-            }
+            Create("SKU-LOGI-MX3S", "Logitech MX Master 3S", "Peripherals", 99.99m, 45, 10,
+                "Wireless mouse, 8K DPI, quiet switches."),
+            Create("SKU-KCH-K2V2", "Keychron K2 V2", "Peripherals", 79.50m, 8, 10,
+                "75% mechanical keyboard, Gateron Brown switches."),
+            Create("SKU-DELL-U2723", "Dell UltraSharp U2723QE", "Displays", 579.00m, 14, 5,
+                "27-inch 4K monitor with USB-C power delivery."),
+            Create("SKU-ANKR-737", "Anker 737 Power Bank", "Accessories", 149.99m, 3, 8,
+                "24,000 mAh, 140 W, three ports."),
+            Create("SKU-SNY-WH1000XM5", "Sony WH-1000XM5", "Audio", 348.00m, 22, 6,
+                "Over-ear noise cancelling headphones.")
         };
 
-        await context.Products.AddRangeAsync(products);
-        await context.SaveChangesAsync();
+        database.Products.AddRange(products);
+        await database.SaveChangesAsync(cancellationToken);
+    }
 
-        // Add initial ledger entries for the initial stocks
-        var movements = products.Select(p => new InventoryMovement
+    private static Product Create(
+        string sku,
+        string name,
+        string category,
+        decimal unitPrice,
+        int openingStock,
+        int reorderLevel,
+        string description)
+    {
+        var product = new Product
         {
-            ProductId = p.Id,
-            QuantityChange = p.QuantityOnHand,
-            PreviousQuantity = 0,
-            NewQuantity = p.QuantityOnHand,
-            Type = MovementType.StockIn,
-            Reason = "Initial Opening Stock Inventory",
-            ReferenceId = "INIT-STOCK-2026",
-            CreatedAtUtc = DateTime.UtcNow
-        }).ToList();
+            Sku = sku,
+            Name = name,
+            Category = category,
+            Description = description,
+            UnitPrice = unitPrice,
+            ReorderLevel = reorderLevel
+        };
 
-        await context.InventoryMovements.AddRangeAsync(movements);
-        await context.SaveChangesAsync();
+        product.ApplyMovement(openingStock, MovementType.StockIn, "Opening stock", "SEED");
+
+        return product;
     }
 }
-

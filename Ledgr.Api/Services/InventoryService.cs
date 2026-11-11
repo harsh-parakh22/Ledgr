@@ -1,113 +1,63 @@
-using Microsoft.EntityFrameworkCore;
 using Ledgr.Api.Data;
-using Ledgr.Api.DTOs;
+using Ledgr.Api.Dtos;
 using Ledgr.Api.Exceptions;
 using Ledgr.Api.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ledgr.Api.Services;
 
-public class InventoryService : IInventoryService
+public sealed class InventoryService(ApplicationDbContext database) : IInventoryService
 {
-    private readonly ApplicationDbContext _context;
-
-    public InventoryService(ApplicationDbContext context)
+    public async Task<InventoryMovementDto> AdjustAsync(StockAdjustmentDto dto, CancellationToken cancellationToken)
     {
-        _context = context;
-    }
-
-    public async Task<InventoryMovementDto> AdjustStockAsync(StockAdjustmentDto dto)
-    {
-        if (dto.QuantityChange == 0)
-            throw new LedgrException("Stock adjustment quantity change cannot be zero.", 400);
-
-        // Transactional adjustment with ACID guarantee
-        var executionStrategy = _context.Database.CreateExecutionStrategy();
-
-        return await executionStrategy.ExecuteAsync(async () =>
+        if (dto.Type is MovementType.OrderFulfill or MovementType.OrderCancel)
         {
-            await using var transaction = await _context.Database.BeginTransactionAsync();
+            throw new LedgrException($"{dto.Type} movements are written by the order pipeline, not by hand.");
+        }
 
-            var product = await _context.Products.FindAsync(dto.ProductId);
-            if (product == null)
-                throw new ProductNotFoundException(dto.ProductId);
+        var product = await database.Products.FirstOrDefaultAsync(p => p.Id == dto.ProductId, cancellationToken)
+            ?? throw new ProductNotFoundException(dto.ProductId);
 
-            var previousQty = product.QuantityOnHand;
-            var newQty = previousQty + dto.QuantityChange;
+        var movement = product.ApplyMovement(dto.QuantityChange, dto.Type, dto.Reason, dto.ReferenceId);
 
-            if (newQty < 0)
-            {
-                throw new InsufficientStockException(
-                    product.Sku, 
-                    Math.Abs(dto.QuantityChange), 
-                    previousQty
-                );
-            }
+        try
+        {
+            await database.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new StockConflictException();
+        }
 
-            product.QuantityOnHand = newQty;
-            product.UpdatedAtUtc = DateTime.UtcNow;
-
-            var movement = new InventoryMovement
-            {
-                ProductId = product.Id,
-                QuantityChange = dto.QuantityChange,
-                PreviousQuantity = previousQty,
-                NewQuantity = newQty,
-                Type = dto.Type,
-                Reason = dto.Reason.Trim(),
-                ReferenceId = dto.ReferenceId?.Trim(),
-                CreatedAtUtc = DateTime.UtcNow
-            };
-
-            _context.InventoryMovements.Add(movement);
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
-
-            return new InventoryMovementDto(
-                movement.Id,
-                movement.ProductId,
-                product.Name,
-                product.Sku,
-                movement.QuantityChange,
-                movement.PreviousQuantity,
-                movement.NewQuantity,
-                movement.Type.ToString(),
-                movement.Reason,
-                movement.ReferenceId,
-                movement.CreatedAtUtc
-            );
-        });
+        return InventoryMovementDto.From(movement, product);
     }
 
-    public async Task<IEnumerable<InventoryMovementDto>> GetMovementsAsync(int? productId = null, int limit = 50)
+    public async Task<PagedResult<InventoryMovementDto>> GetMovementsAsync(
+        int? productId,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken)
     {
-        var query = _context.InventoryMovements
-            .AsNoTracking()
-            .Include(m => m.Product)
-            .AsQueryable();
+        var (normalizedPage, normalizedPageSize) = Paging.Normalize(page, pageSize);
+
+        var movements = database.InventoryMovements.AsNoTracking().AsQueryable();
 
         if (productId.HasValue)
         {
-            query = query.Where(m => m.ProductId == productId.Value);
+            movements = movements.Where(m => m.ProductId == productId.Value);
         }
 
-        var list = await query
+        var totalCount = await movements.CountAsync(cancellationToken);
+        var items = await movements
+            .Include(m => m.Product)
             .OrderByDescending(m => m.CreatedAtUtc)
-            .Take(limit)
-            .ToListAsync();
+            .ThenByDescending(m => m.Id)
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
+            .ToListAsync(cancellationToken);
 
-        return list.Select(m => new InventoryMovementDto(
-            m.Id,
-            m.ProductId,
-            m.Product?.Name ?? "Unknown Product",
-            m.Product?.Sku ?? "N/A",
-            m.QuantityChange,
-            m.PreviousQuantity,
-            m.NewQuantity,
-            m.Type.ToString(),
-            m.Reason,
-            m.ReferenceId,
-            m.CreatedAtUtc
-        ));
+        var dtos = items.Select(m => InventoryMovementDto.From(m, m.Product)).ToList();
+
+        return new PagedResult<InventoryMovementDto>(dtos, normalizedPage, normalizedPageSize, totalCount);
     }
 }
-

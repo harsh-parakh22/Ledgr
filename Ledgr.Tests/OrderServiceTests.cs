@@ -1,151 +1,246 @@
 using FluentAssertions;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
-using Ledgr.Api.Data;
-using Ledgr.Api.DTOs;
+using Ledgr.Api.Dtos;
 using Ledgr.Api.Exceptions;
 using Ledgr.Api.Models;
 using Ledgr.Api.Services;
-using Xunit;
+using Ledgr.Tests.Support;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ledgr.Tests;
 
-public class OrderServiceTests
+public sealed class OrderServiceTests
 {
-    private ApplicationDbContext CreateInMemoryDbContext()
-    {
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
-            .ConfigureWarnings(x => x.Ignore(InMemoryEventId.TransactionIgnoredWarning))
-            .Options;
-
-        return new ApplicationDbContext(options);
-    }
-
     [Fact]
-    public async Task CreateOrder_WithSufficientStock_DeductsInventoryAndAppendsMovementLedger()
+    public async Task CreateAsync_WithStock_DeductsStockAndWritesLedger()
     {
-        // Arrange
-        await using var context = CreateInMemoryDbContext();
-        var product = new Product
-        {
-            Sku = "TEST-MOUSE-01",
-            Name = "Ergo Mouse",
-            Category = "Peripherals",
-            UnitPrice = 50.00m,
-            QuantityOnHand = 20,
-            ReorderLevel = 5,
-            IsActive = true
-        };
-        context.Products.Add(product);
-        await context.SaveChangesAsync();
+        using var database = new TestDatabase();
+        var product = await database.AddProductAsync(stock: 20, price: 50m);
+        await using var context = database.CreateContext();
+        var service = new OrderService(context);
 
-        var orderService = new OrderService(context);
+        var result = await service.CreateAsync(
+            new CreateOrderDto("Acme", "buyer@acme.test", [new CreateOrderItemDto(product.Id, 4)]),
+            null,
+            CancellationToken.None);
 
-        var orderDto = new CreateOrderDto(
-            CustomerName: "John Doe",
-            CustomerEmail: "john@example.com",
-            Items: new List<CreateOrderItemDto>
-            {
-                new(ProductId: product.Id, Quantity: 4)
-            }
-        );
+        result.Created.Should().BeTrue();
+        result.Order.TotalAmount.Should().Be(200m);
+        (await database.StockAsync(product.Id)).Should().Be(16);
 
-        // Act
-        var result = await orderService.CreateOrderAsync(orderDto);
-
-        // Assert
-        result.Should().NotBeNull();
-        result.TotalAmount.Should().Be(200.00m);
-        result.Items.Should().HaveCount(1);
-
-        // Verify product stock updated
-        var updatedProduct = await context.Products.FindAsync(product.Id);
-        updatedProduct!.QuantityOnHand.Should().Be(16);
-
-        // Verify ledger audit was created
-        var movement = await context.InventoryMovements.FirstOrDefaultAsync(m => m.ProductId == product.Id);
-        movement.Should().NotBeNull();
-        movement!.QuantityChange.Should().Be(-4);
+        var movement = await context.InventoryMovements.AsNoTracking().SingleAsync(m => m.Type == MovementType.OrderFulfill);
+        movement.QuantityChange.Should().Be(-4);
         movement.PreviousQuantity.Should().Be(20);
         movement.NewQuantity.Should().Be(16);
-        movement.Reason.Should().Contain(result.OrderNumber);
+        movement.ReferenceId.Should().Be(result.Order.OrderNumber);
     }
 
     [Fact]
-    public async Task CreateOrder_WithInsufficientStock_ThrowsInsufficientStockExceptionAndRollsBack()
+    public async Task CreateAsync_ReturnsLineItemsWithProductDetails()
     {
-        // Arrange
-        await using var context = CreateInMemoryDbContext();
-        var product = new Product
-        {
-            Sku = "TEST-LAPTOP-01",
-            Name = "Developer Laptop",
-            Category = "Computers",
-            UnitPrice = 1200.00m,
-            QuantityOnHand = 2,
-            ReorderLevel = 1,
-            IsActive = true
-        };
-        context.Products.Add(product);
-        await context.SaveChangesAsync();
+        using var database = new TestDatabase();
+        var product = await database.AddProductAsync("SKU-REAL", stock: 5);
+        await using var context = database.CreateContext();
+        var service = new OrderService(context);
 
-        var orderService = new OrderService(context);
+        var result = await service.CreateAsync(
+            new CreateOrderDto("Acme", null, [new CreateOrderItemDto(product.Id, 1)]),
+            null,
+            CancellationToken.None);
 
-        var orderDto = new CreateOrderDto(
-            CustomerName: "Jane Smith",
-            CustomerEmail: "jane@example.com",
-            Items: new List<CreateOrderItemDto>
-            {
-                new(ProductId: product.Id, Quantity: 5) // Requesting 5 but only 2 available
-            }
-        );
-
-        // Act
-        var act = () => orderService.CreateOrderAsync(orderDto);
-
-        // Assert
-        await act.Should().ThrowAsync<InsufficientStockException>()
-            .WithMessage("*TEST-LAPTOP-01*");
-
-        // Verify stock was NOT altered
-        var untouchedProduct = await context.Products.FindAsync(product.Id);
-        untouchedProduct!.QuantityOnHand.Should().Be(2);
-
-        // Verify no order created
-        var orderCount = await context.Orders.CountAsync();
-        orderCount.Should().Be(0);
+        var line = result.Order.Items.Should().ContainSingle().Subject;
+        line.ProductName.Should().Be("Product SKU-REAL");
+        line.Sku.Should().Be("SKU-REAL");
+        line.LineTotal.Should().Be(10m);
     }
 
     [Fact]
-    public async Task CreateOrder_ForInactiveProduct_ThrowsInactiveProductException()
+    public async Task CreateAsync_WhenASecondLineHasNoStock_RollsBackTheFirst()
     {
-        // Arrange
-        await using var context = CreateInMemoryDbContext();
-        var product = new Product
-        {
-            Sku = "DISCONTINUED-SKU",
-            Name = "Old Headset",
-            Category = "Audio",
-            UnitPrice = 30.00m,
-            QuantityOnHand = 10,
-            IsActive = false // Inactive
-        };
-        context.Products.Add(product);
-        await context.SaveChangesAsync();
+        using var database = new TestDatabase();
+        var inStock = await database.AddProductAsync("SKU-OK", stock: 10);
+        var empty = await database.AddProductAsync("SKU-EMPTY", stock: 0);
 
-        var orderService = new OrderService(context);
+        await using var context = database.CreateContext();
+        var service = new OrderService(context);
 
-        var orderDto = new CreateOrderDto(
-            CustomerName: "Alice",
-            CustomerEmail: "alice@example.com",
-            Items: new List<CreateOrderItemDto>
-            {
-                new(ProductId: product.Id, Quantity: 1)
-            }
-        );
+        var act = () => service.CreateAsync(
+            new CreateOrderDto("Acme", null,
+            [
+                new CreateOrderItemDto(inStock.Id, 2),
+                new CreateOrderItemDto(empty.Id, 1)
+            ]),
+            null,
+            CancellationToken.None);
 
-        // Act & Assert
-        await Assert.ThrowsAsync<InactiveProductException>(() => orderService.CreateOrderAsync(orderDto));
+        await act.Should().ThrowAsync<InsufficientStockException>();
+
+        (await database.StockAsync(inStock.Id)).Should().Be(10);
+
+        await using var verification = database.CreateContext();
+        (await verification.Orders.CountAsync()).Should().Be(0);
+        (await verification.InventoryMovements.CountAsync(m => m.ProductId == inStock.Id)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ForInactiveProduct_IsRejected()
+    {
+        using var database = new TestDatabase();
+        var product = await database.AddProductAsync(active: false);
+        await using var context = database.CreateContext();
+        var service = new OrderService(context);
+
+        var act = () => service.CreateAsync(
+            new CreateOrderDto("Acme", null, [new CreateOrderItemDto(product.Id, 1)]),
+            null,
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<InactiveProductException>();
+    }
+
+    [Fact]
+    public async Task CreateAsync_MergesDuplicateProductLines()
+    {
+        using var database = new TestDatabase();
+        var product = await database.AddProductAsync(stock: 10, price: 3m);
+        await using var context = database.CreateContext();
+        var service = new OrderService(context);
+
+        var result = await service.CreateAsync(
+            new CreateOrderDto("Acme", null,
+            [
+                new CreateOrderItemDto(product.Id, 2),
+                new CreateOrderItemDto(product.Id, 3)
+            ]),
+            null,
+            CancellationToken.None);
+
+        result.Order.Items.Should().ContainSingle().Which.Quantity.Should().Be(5);
+        result.Order.TotalAmount.Should().Be(15m);
+        (await database.StockAsync(product.Id)).Should().Be(5);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithSameIdempotencyKey_ReturnsTheOriginalOrder()
+    {
+        using var database = new TestDatabase();
+        var product = await database.AddProductAsync(stock: 10);
+        await using var context = database.CreateContext();
+        var service = new OrderService(context);
+
+        var dto = new CreateOrderDto("Acme", null, [new CreateOrderItemDto(product.Id, 2)]);
+
+        var first = await service.CreateAsync(dto, "key-1", CancellationToken.None);
+        var second = await service.CreateAsync(dto, "key-1", CancellationToken.None);
+
+        first.Created.Should().BeTrue();
+        second.Created.Should().BeFalse();
+        second.Order.Id.Should().Be(first.Order.Id);
+        (await database.StockAsync(product.Id)).Should().Be(8);
+
+        await using var verification = database.CreateContext();
+        (await verification.Orders.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenStockChangedUnderneath_RaisesConflictInsteadOfOverselling()
+    {
+        using var database = new TestDatabase();
+        var product = await database.AddProductAsync(stock: 5);
+
+        // This context reads the product first, then keeps that stale snapshot.
+        await using var staleContext = database.CreateContext();
+        await staleContext.Products.SingleAsync(p => p.Id == product.Id);
+
+        await using var freshContext = database.CreateContext();
+        var first = await new OrderService(freshContext).CreateAsync(
+            new CreateOrderDto("First", null, [new CreateOrderItemDto(product.Id, 1)]),
+            null,
+            CancellationToken.None);
+        first.Created.Should().BeTrue();
+
+        var act = () => new OrderService(staleContext).CreateAsync(
+            new CreateOrderDto("Second", null, [new CreateOrderItemDto(product.Id, 1)]),
+            null,
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<StockConflictException>();
+        (await database.StockAsync(product.Id)).Should().Be(4);
+    }
+
+    [Fact]
+    public async Task CancelAsync_RestoresStockAndMarksTheOrderCancelled()
+    {
+        using var database = new TestDatabase();
+        var product = await database.AddProductAsync(stock: 10);
+        await using var context = database.CreateContext();
+        var service = new OrderService(context);
+
+        var created = await service.CreateAsync(
+            new CreateOrderDto("Acme", null, [new CreateOrderItemDto(product.Id, 3)]),
+            null,
+            CancellationToken.None);
+
+        var cancelled = await service.CancelAsync(created.Order.Id, CancellationToken.None);
+
+        cancelled.Status.Should().Be(nameof(OrderStatus.Cancelled));
+        cancelled.CancelledAtUtc.Should().NotBeNull();
+        (await database.StockAsync(product.Id)).Should().Be(10);
+    }
+
+    [Fact]
+    public async Task CancelAsync_WhenCalledTwice_DoesNotRestoreStockTwice()
+    {
+        using var database = new TestDatabase();
+        var product = await database.AddProductAsync(stock: 10);
+        await using var context = database.CreateContext();
+        var service = new OrderService(context);
+
+        var created = await service.CreateAsync(
+            new CreateOrderDto("Acme", null, [new CreateOrderItemDto(product.Id, 3)]),
+            null,
+            CancellationToken.None);
+
+        await service.CancelAsync(created.Order.Id, CancellationToken.None);
+        await service.CancelAsync(created.Order.Id, CancellationToken.None);
+
+        (await database.StockAsync(product.Id)).Should().Be(10);
+
+        await using var verification = database.CreateContext();
+        (await verification.InventoryMovements.CountAsync(m => m.Type == MovementType.OrderCancel)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CancelAsync_WhenOrderIsMissing_Throws404()
+    {
+        using var database = new TestDatabase();
+        await using var context = database.CreateContext();
+        var service = new OrderService(context);
+
+        var act = () => service.CancelAsync(404, CancellationToken.None);
+
+        await act.Should().ThrowAsync<OrderNotFoundException>();
+    }
+
+    [Fact]
+    public async Task GetAsync_ReturnsNewestOrderFirst()
+    {
+        using var database = new TestDatabase();
+        var product = await database.AddProductAsync(stock: 10);
+        await using var context = database.CreateContext();
+        var service = new OrderService(context);
+
+        var first = await service.CreateAsync(
+            new CreateOrderDto("First", null, [new CreateOrderItemDto(product.Id, 1)]),
+            null,
+            CancellationToken.None);
+        var second = await service.CreateAsync(
+            new CreateOrderDto("Second", null, [new CreateOrderItemDto(product.Id, 1)]),
+            null,
+            CancellationToken.None);
+
+        var page = await service.GetAsync(1, 10, CancellationToken.None);
+
+        page.Items[0].Id.Should().Be(second.Order.Id);
+        page.Items[1].Id.Should().Be(first.Order.Id);
     }
 }

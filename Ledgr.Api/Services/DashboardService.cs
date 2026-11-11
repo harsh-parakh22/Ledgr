@@ -1,54 +1,52 @@
-using Microsoft.EntityFrameworkCore;
 using Ledgr.Api.Data;
-using Ledgr.Api.DTOs;
+using Ledgr.Api.Dtos;
+using Ledgr.Api.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ledgr.Api.Services;
 
-public class DashboardService : IDashboardService
+public sealed class DashboardService(ApplicationDbContext database, IInventoryService inventory) : IDashboardService
 {
-    private readonly ApplicationDbContext _context;
-    private readonly IInventoryService _inventoryService;
+    private const int LowStockAlertLimit = 20;
+    private const int RecentMovementLimit = 8;
 
-    public DashboardService(ApplicationDbContext context, IInventoryService inventoryService)
+    public async Task<DashboardKpisDto> GetAsync(CancellationToken cancellationToken)
     {
-        _context = context;
-        _inventoryService = inventoryService;
-    }
+        var activeProducts = database.Products.AsNoTracking().Where(p => p.IsActive);
 
-    public async Task<DashboardKpisDto> GetKpisAsync()
-    {
-        var activeProducts = await _context.Products.AsNoTracking().Where(p => p.IsActive).ToListAsync();
+        var activeProductCount = await activeProducts.CountAsync(cancellationToken);
+        var lowStockCount = await activeProducts.CountAsync(p => p.QuantityOnHand <= p.ReorderLevel, cancellationToken);
+        var openOrders = await database.Orders.CountAsync(o => o.Status == OrderStatus.Confirmed, cancellationToken);
+        var cancelledOrders = await database.Orders.CountAsync(o => o.Status == OrderStatus.Cancelled, cancellationToken);
+        var inventoryValue = await InventoryValueAsync(activeProducts, cancellationToken);
 
-        var totalProducts = activeProducts.Count;
-        var lowStockProducts = activeProducts.Where(p => p.QuantityOnHand <= p.ReorderLevel).ToList();
-        var lowStockCount = lowStockProducts.Count;
-        var totalOrders = await _context.Orders.CountAsync();
-        var totalInventoryValue = activeProducts.Sum(p => p.UnitPrice * p.QuantityOnHand);
+        var lowStockProducts = await activeProducts
+            .Where(p => p.QuantityOnHand <= p.ReorderLevel)
+            .OrderBy(p => p.QuantityOnHand - p.ReorderLevel)
+            .ThenBy(p => p.Name)
+            .Take(LowStockAlertLimit)
+            .ToListAsync(cancellationToken);
 
-        var recentMovements = (await _inventoryService.GetMovementsAsync(limit: 8)).ToList();
-
-        var lowStockDtos = lowStockProducts.Select(p => new ProductDto(
-            p.Id,
-            p.Sku,
-            p.Name,
-            p.Description,
-            p.Category,
-            p.UnitPrice,
-            p.QuantityOnHand,
-            p.ReorderLevel,
-            p.IsActive,
-            true,
-            p.CreatedAtUtc
-        )).ToList();
+        var recentMovements = await inventory.GetMovementsAsync(null, 1, RecentMovementLimit, cancellationToken);
 
         return new DashboardKpisDto(
-            totalProducts,
+            activeProductCount,
             lowStockCount,
-            totalOrders,
-            totalInventoryValue,
-            lowStockDtos,
-            recentMovements
-        );
+            openOrders,
+            cancelledOrders,
+            inventoryValue,
+            lowStockProducts.Select(ProductDto.From).ToList(),
+            recentMovements.Items);
+    }
+
+    private static async Task<decimal> InventoryValueAsync(IQueryable<Product> activeProducts, CancellationToken cancellationToken)
+    {
+        // SQLite stores decimal as text, so summing in SQL would lose exactness. Reading the
+        // two columns and summing in memory keeps the figure exact at this application's size.
+        var lines = await activeProducts
+            .Select(p => new { p.UnitPrice, p.QuantityOnHand })
+            .ToListAsync(cancellationToken);
+
+        return lines.Sum(line => line.UnitPrice * line.QuantityOnHand);
     }
 }
-
