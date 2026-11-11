@@ -1,0 +1,35 @@
+name: build
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Check formatting
+        run: dotnet format Ledgr.sln --verify-no-changes --no-restore --exclude Ledgr.Api/Data/Migrations
+
+      - name: Test
+        run: >
+          dotnet test --no-build --configuration Release
+          /p:CollectCoverage=true
+          /p:Threshold=90
+          /p:ThresholdType=line
+          /p:ThresholdStat=total

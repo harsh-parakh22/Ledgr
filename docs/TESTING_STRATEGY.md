@@ -1,71 +1,70 @@
-# Testing Strategy & Quality Assurance Plan — Ledgr
+# Testing
 
-**Document Version:** 1.0.0  
-**Status:** Approved  
-**Author:** Harsh Parakh  
-**Paradigm:** Strict Test-Driven Development (TDD)  
-**Frameworks:** xUnit, FluentAssertions, Moq, EF Core InMemory  
+## Approach
 
----
+Tests run against real SQLite databases, not the EF Core in-memory provider. That matters: the
+in-memory provider ignores transactions, so a rollback test written against it proves nothing.
+SQLite is also the provider the application uses, so query translation is exercised too.
 
-## 1. The TDD Red-Green-Refactor Lifecycle
+- `TestDatabase` opens one in-memory SQLite connection, creates the schema with `EnsureCreated` and
+  hands out contexts that share it. Disposing it drops the database.
+- Each test gets a fresh instance, so tests do not share state and can run in parallel.
+- API tests use `WebApplicationFactory<Program>` with the same provider and a per-factory database.
 
-Every new feature or business constraint in Ledgr must strictly follow the **Red-Green-Refactor** discipline:
+No mocking framework is used. The units under test are the services and the HTTP surface; both can
+be exercised with real dependencies at this size.
 
-```mermaid
-stateDiagram-v2
-    [*] --> RED : 1. Requirement Identified
-    RED --> GREEN : 2. Write Minimal Production Code
-    GREEN --> REFACTOR : 3. All Tests Pass
-    REFACTOR --> RED : 4. Next Invariant / Clean Architecture
-    REFACTOR --> [*] : Feature Complete
+## What is covered
 
-    state RED {
-        [*] --> WriteFailingTest
-        WriteFailingTest --> VerifyTestFails : dotnet test
-    }
-    state GREEN {
-        [*] --> ImplementLogic
-        ImplementLogic --> VerifyTestPasses : dotnet test
-    }
-    state REFACTOR {
-        [*] --> OptimizeQueries
-        OptimizeQueries --> EliminateDuplication
-        EliminateDuplication --> EnsureCleanArch
-    }
+| Area | Examples |
+| :--- | :--- |
+| Ledger arithmetic | opening stock writes one movement; zero opening stock writes none |
+| Movement rules | zero delta, wrong sign for write-off, order types rejected on the manual endpoint |
+| Insufficient stock | rejected and stock unchanged |
+| Transactions | a failing second line leaves the first line's stock untouched |
+| Concurrency | a stale context gets `StockConflictException`, not an overwrite |
+| Idempotency | replaying a key returns the same order and deducts once |
+| Cancellation | stock restored, second call does not restock again |
+| Order mapping | `POST /api/orders` returns real product names and SKUs |
+| Validation | empty body fields produce field-level problem details |
+| Pagination | page size capped at 100, totals and page counts correct |
+| Search | wildcards in user input are treated as literal text |
+| Seeding | five products with opening movements; second run is a no-op |
+| HTTP surface | status codes, `application/problem+json`, security headers, health probe |
+
+## What is not covered
+
+- **True write parallelism.** SQLite serialises writers, so the concurrency test forces a conflict
+  with a stale context rather than two simultaneous requests. The token itself is what is tested.
+- **Rate limiting.** The limit is configuration; a test would mostly assert the framework works.
+- **The UI.** Checked manually in a browser and by loading the real page in jsdom during the
+  rewrite; there is no browser test in CI.
+- **Retry behaviour.** There is none; see the note about transient faults in the README.
+
+## Running
+
+```bash
+dotnet test
 ```
 
----
+Coverage, with the same exclusions as CI:
 
-## 2. Testing Pyramid & Taxonomy
-
-```
-       /\
-      /  \      Integration Tests (API Endpoints, EF Core InMemory / SqlServer)
-     /----\     
-    /      \    Unit Tests (Order Allocation Invariants, Ledger Delta Math)
-   /--------\   
+```bash
+dotnet test /p:CollectCoverage=true \
+  /p:CoverletOutputFormat=cobertura \
+  /p:Threshold=90 /p:ThresholdType=line /p:ThresholdStat=total
 ```
 
-### 2.1 Domain Unit Tests (`Ledgr.Tests`)
-- **Isolation:** Tests execute in pure memory using fresh isolated DbContext instances (`Guid.NewGuid().ToString()`).
-- **Assertion Style:** Fluent assertions (`result.Should().Be(...)`) for human-readable diagnostic messages.
+`Ledgr.Tests.csproj` excludes generated migrations, the design-time factory and `Program` from the
+measurement. Those are either generated or plumbing; including them would inflate the number
+without testing behaviour.
 
----
+CI additionally runs `dotnet format --verify-no-changes` over the solution (migrations excluded).
 
-## 3. Core Test Matrix & Edge Case Invariants
+## Conventions
 
-| Test Case Name | Target Service | Given / When / Then | Expected Outcome |
-| :--- | :--- | :--- | :--- |
-| `CreateOrder_WithSufficientStock` | `OrderService` | Product has 20 units; customer orders 4 units. | Stock decrements to 16, Order confirmed, ledger movement of `-4` created. |
-| `CreateOrder_WithInsufficientStock` | `OrderService` | Product has 2 units; customer orders 5 units. | Throws `InsufficientStockException`; stock remains 2; 0 orders created (atomic rollback). |
-| `CreateOrder_ForInactiveProduct` | `OrderService` | Product has `IsActive = false`. | Throws `InactiveProductException`; transaction aborted. |
-| `AdjustStock_PositiveRestock` | `InventoryService` | Product has 10 units; PO restock adds 25 units. | Stock increases to 35; immutable `StockIn` movement appended. |
-| `AdjustStock_NegativeWriteOffExceeding` | `InventoryService` | Product has 3 units; write-off requested for -5 units. | Throws `InsufficientStockException`; write-off rejected. |
-| `CreateProduct_DuplicateSku` | `ProductService` | Product with SKU `SKU-A1` exists; attempt to add `SKU-A1`. | Throws `DuplicateSkuException`. |
-
----
-
-## 4. Continuous Integration Execution
-All tests are executed on every commit via GitHub Actions (`.github/workflows/build-test.yml`). Pull requests are blocked from merging if any test fails or if test coverage drops below 85%.
-
+- Name tests `Method_Scenario_Expectation`, for example
+  `CreateAsync_WhenASecondLineHasNoStock_RollsBackTheFirst`.
+- One behaviour per test; assert on observable state, not on call counts.
+- Do not assert on exception messages that are likely to be reworded; assert on the exception type
+  or a stable fragment.

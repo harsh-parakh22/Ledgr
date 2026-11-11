@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ledgr</title>
+  <link rel="stylesheet" href="/lib/bootstrap/bootstrap.min.css">
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="container-xl topbar-inner">
+    <div class="brand">
+      <span class="wordmark">Ledgr</span>
+      <span class="tagline">Stock, orders and the movements behind them</span>
+    </div>
+    <div class="topbar-actions">
+      <a class="btn btn-quiet btn-sm" href="/swagger" target="_blank" rel="noopener">API reference</a>
+      <button class="btn btn-accent btn-sm" type="button" data-action="new-order">New order</button>
+    </div>
+  </div>
+</header>
+
+<main class="container-xl page">
+
+  <section class="readout" aria-label="Key figures">
+    <div class="readout-cell">
+      <span class="readout-label">Active products</span>
+      <span class="readout-value" id="stat-products">&ndash;</span>
+    </div>
+    <div class="readout-cell">
+      <span class="readout-label">Low stock</span>
+      <span class="readout-value attention" id="stat-low-stock">&ndash;</span>
+    </div>
+    <div class="readout-cell">
+      <span class="readout-label">Open orders</span>
+      <span class="readout-value" id="stat-open-orders">&ndash;</span>
+    </div>
+    <div class="readout-cell">
+      <span class="readout-label">Inventory value</span>
+      <span class="readout-value" id="stat-value">&ndash;</span>
+    </div>
+  </section>
+
+  <ul class="nav nav-tabs app-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" type="button" data-bs-toggle="tab" data-bs-target="#pane-products" role="tab">Products</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" type="button" data-bs-toggle="tab" data-bs-target="#pane-orders" role="tab">Orders</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" type="button" data-bs-toggle="tab" data-bs-target="#pane-movements" role="tab">Stock movements</button>
+    </li>
+  </ul>
+
+  <div class="tab-content">
+
+    <section class="tab-pane fade show active" id="pane-products" role="tabpanel">
+      <div class="panel">
+        <div class="panel-head">
+          <div class="filters">
+            <input class="form-control form-control-sm" type="search" id="product-search" placeholder="Search name or SKU" aria-label="Search products">
+            <select class="form-select form-select-sm" id="product-category" aria-label="Filter by category">
+              <option value="">All categories</option>
+            </select>
+            <label class="check">
+              <input class="form-check-input" type="checkbox" id="product-low-stock">
+              Low stock only
+            </label>
+          </div>
+          <button class="btn btn-outline-ink btn-sm" type="button" data-action="new-product">Add product</button>
+        </div>
+        <div class="table-responsive">
+          <table class="table app-table">
+            <thead>
+              <tr>
+                <th scope="col">SKU</th>
+                <th scope="col">Product</th>
+                <th scope="col">Category</th>
+                <th scope="col" class="num">Price</th>
+                <th scope="col" class="num">On hand</th>
+                <th scope="col" class="num">Reorder at</th>
+                <th scope="col">Status</th>
+                <th scope="col"><span class="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="product-rows">
+              <tr><td colspan="8" class="empty">Loading products&hellip;</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel-foot">
+          <span class="summary" id="product-summary"></span>
+          <nav class="pager" id="product-pager" aria-label="Product pages"></nav>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-pane fade" id="pane-orders" role="tabpanel">
+      <div class="panel">
+        <div class="panel-head">
+          <p class="panel-note">Cancelling an order returns its units to stock and records the movement.</p>
+          <button class="btn btn-accent btn-sm" type="button" data-action="new-order">New order</button>
+        </div>
+        <div class="table-responsive">
+          <table class="table app-table">
+            <thead>
+              <tr>
+                <th scope="col">Order</th>
+                <th scope="col">Customer</th>
+                <th scope="col" class="num">Lines</th>
+                <th scope="col" class="num">Total</th>
+                <th scope="col">Status</th>
+                <th scope="col">Placed</th>
+                <th scope="col"><span class="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="order-rows">
+              <tr><td colspan="7" class="empty">Loading orders&hellip;</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel-foot">
+          <span class="summary" id="order-summary"></span>
+          <nav class="pager" id="order-pager" aria-label="Order pages"></nav>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-pane fade" id="pane-movements" role="tabpanel">
+      <div class="panel">
+        <div class="panel-head">
+          <p class="panel-note">Every quantity change is written here, newest first.</p>
+          <button class="btn btn-outline-ink btn-sm" type="button" data-action="reload-movements">Refresh</button>
+        </div>
+        <div class="table-responsive">
+          <table class="table app-table">
+            <thead>
+              <tr>
+                <th scope="col">When</th>
+                <th scope="col">Product</th>
+                <th scope="col">Type</th>
+                <th scope="col" class="num">Change</th>
+                <th scope="col" class="num">Before &rarr; after</th>
+                <th scope="col">Reason</th>
+              </tr>
+            </thead>
+            <tbody id="movement-rows">
+              <tr><td colspan="6" class="empty">Loading movements&hellip;</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel-foot">
+          <span class="summary" id="movement-summary"></span>
+          <nav class="pager" id="movement-pager" aria-label="Movement pages"></nav>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<div class="modal fade" id="product-modal" tabindex="-1" aria-labelledby="product-modal-title" aria-hidden="true">
+  <div class="modal-dialog">
+    <form class="modal-content" id="product-form" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title" id="product-modal-title">New product</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="product-id">
+        <div class="row g-3">
+          <div class="col-6">
+            <label class="form-label" for="product-sku">SKU</label>
+            <input class="form-control" id="product-sku" maxlength="50" autocomplete="off" required>
+          </div>
+          <div class="col-6">
+            <label class="form-label" for="product-category-input">Category</label>
+            <input class="form-control" id="product-category-input" list="category-options" maxlength="80" autocomplete="off" required>
+            <datalist id="category-options"></datalist>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="product-name">Name</label>
+            <input class="form-control" id="product-name" maxlength="150" required>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="product-description">Description <span class="optional">optional</span></label>
+            <textarea class="form-control" id="product-description" rows="2" maxlength="500"></textarea>
+          </div>
+          <div class="col-4">
+            <label class="form-label" for="product-price">Unit price</label>
+            <input class="form-control" id="product-price" type="number" min="0.01" step="0.01" required>
+          </div>
+          <div class="col-4">
+            <label class="form-label" for="product-reorder">Reorder at</label>
+            <input class="form-control" id="product-reorder" type="number" min="0" step="1" required>
+          </div>
+          <div class="col-4" id="product-initial-wrap">
+            <label class="form-label" for="product-initial">Opening stock</label>
+            <input class="form-control" id="product-initial" type="number" min="0" step="1" value="0">
+          </div>
+        </div>
+        <div class="form-check mt-3 d-none" id="product-active-wrap">
+          <input class="form-check-input" type="checkbox" id="product-active">
+          <label class="form-check-label" for="product-active">Active</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-quiet" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-accent" id="product-submit">Save product</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="adjust-modal" tabindex="-1" aria-labelledby="adjust-modal-title" aria-hidden="true">
+  <div class="modal-dialog">
+    <form class="modal-content" id="adjust-form" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title" id="adjust-modal-title">Adjust stock</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="adjust-product-id">
+        <p class="target" id="adjust-target"></p>
+        <div class="row g-3">
+          <div class="col-6">
+            <label class="form-label" for="adjust-type">Reason type</label>
+            <select class="form-select" id="adjust-type">
+              <option value="1">Supplier delivery</option>
+              <option value="3">Count correction</option>
+              <option value="4">Damage or loss</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label" for="adjust-quantity">Quantity change</label>
+            <input class="form-control" id="adjust-quantity" type="number" step="1" placeholder="e.g. 10 or -2" required>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="adjust-reason">Reason</label>
+            <input class="form-control" id="adjust-reason" maxlength="250" required>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="adjust-reference">Reference <span class="optional">optional</span></label>
+            <input class="form-control" id="adjust-reference" maxlength="64" placeholder="Purchase order, claim number">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-quiet" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-accent" id="adjust-submit">Record movement</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="order-modal" tabindex="-1" aria-labelledby="order-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <form class="modal-content" id="order-form" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title" id="order-modal-title">New order</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3 mb-3">
+          <div class="col-6">
+            <label class="form-label" for="order-customer">Customer</label>
+            <input class="form-control" id="order-customer" maxlength="120" required>
+          </div>
+          <div class="col-6">
+            <label class="form-label" for="order-email">Email <span class="optional">optional</span></label>
+            <input class="form-control" id="order-email" type="email" maxlength="150">
+          </div>
+        </div>
+
+        <div class="lines-head">
+          <span class="form-label mb-0">Lines</span>
+          <button class="btn btn-outline-ink btn-sm" type="button" data-action="add-line">Add line</button>
+        </div>
+        <div id="order-lines" class="lines"></div>
+
+        <div class="order-total">
+          <span>Total</span>
+          <strong id="order-total">&ndash;</strong>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-quiet" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-accent" id="order-submit">Place order</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast-stack" id="toasts" aria-live="polite"></div>
+
+<script src="/lib/bootstrap/bootstrap.bundle.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

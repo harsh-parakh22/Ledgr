@@ -482,3 +482,11 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Local database and test output
+*.db
+*.db-shm
+*.db-wal
+TestResults/
+coverage*.xml
+

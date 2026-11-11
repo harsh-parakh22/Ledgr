@@ -1,0 +1,77 @@
+@host = http://localhost:5196
+
+### Catalogue
+GET {{host}}/api/products?page=1&pageSize=10
+
+### One product
+GET {{host}}/api/products/1
+
+### Categories
+GET {{host}}/api/products/categories
+
+### Create a product with opening stock
+POST {{host}}/api/products
+Content-Type: application/json
+
+{
+  "sku": "SKU-NEW-01",
+  "name": "Cable organiser",
+  "description": null,
+  "category": "Accessories",
+  "unitPrice": 12.5,
+  "initialQuantity": 20,
+  "reorderLevel": 5
+}
+
+### Update a product
+PUT {{host}}/api/products/1
+Content-Type: application/json
+
+{
+  "name": "Logitech MX Master 3S",
+  "description": "Wireless mouse, 8K DPI, quiet switches.",
+  "category": "Peripherals",
+  "unitPrice": 99.99,
+  "reorderLevel": 10,
+  "isActive": true
+}
+
+### Write off damaged stock
+POST {{host}}/api/inventory/adjust
+Content-Type: application/json
+
+{
+  "productId": 1,
+  "quantityChange": -2,
+  "type": 4,
+  "reason": "Damaged in transit",
+  "referenceId": "CLAIM-14"
+}
+
+### Movement log
+GET {{host}}/api/inventory/movements?page=1&pageSize=10
+
+### Place an order
+POST {{host}}/api/orders
+Content-Type: application/json
+Idempotency-Key: demo-order-1
+
+{
+  "customerName": "Northwind Traders",
+  "customerEmail": "ops@northwind.test",
+  "items": [
+    { "productId": 1, "quantity": 2 }
+  ]
+}
+
+### Orders
+GET {{host}}/api/orders?page=1&pageSize=10
+
+### Cancel an order (returns its units to stock)
+POST {{host}}/api/orders/1/cancel
+
+### Dashboard figures
+GET {{host}}/api/dashboard/kpis
+
+### Health
+GET {{host}}/health
