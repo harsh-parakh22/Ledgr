@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Ledgr.Api\Ledgr.Api.csproj" />
+    <ProjectReference Include="..\..\src\Ledgr.Api\Ledgr.Api.csproj" />
   </ItemGroup>
 
 </Project>

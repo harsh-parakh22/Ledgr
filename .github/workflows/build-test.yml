@@ -24,7 +24,7 @@ jobs:
         run: dotnet build --no-restore --configuration Release
 
       - name: Check formatting
-        run: dotnet format Ledgr.sln --verify-no-changes --no-restore --exclude Ledgr.Api/Data/Migrations
+        run: dotnet format Ledgr.sln --verify-no-changes --no-restore --exclude src/Ledgr.Api/Data/Migrations
 
       - name: Test
         run: >
