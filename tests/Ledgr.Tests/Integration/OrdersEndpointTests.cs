@@ -3,10 +3,11 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using Ledgr.Api.Contracts;
+using Ledgr.Tests.Support;
 
 namespace Ledgr.Tests.Api;
 
-public sealed class ApiTests
+public sealed class OrdersEndpointTests
 {
     [Fact]
     public async Task PostOrder_Returns201WithLineItemDetails()
@@ -101,127 +102,6 @@ public sealed class ApiTests
     }
 
     [Fact]
-    public async Task GetProducts_ReturnsAPagedEnvelope()
-    {
-        await using var factory = new LedgrApiFactory();
-        using var client = factory.CreateClient();
-        await factory.AddProductAsync("SKU-ONE");
-        await factory.AddProductAsync("SKU-TWO");
-
-        var page = await client.GetFromJsonAsync<PagedResult<ProductDto>>("/api/products?page=1&pageSize=1");
-
-        page.Should().NotBeNull();
-        page!.Items.Should().ContainSingle();
-        page.TotalCount.Should().Be(2);
-        page.TotalPages.Should().Be(2);
-        page.PageSize.Should().Be(1);
-    }
-
-    [Fact]
-    public async Task DeactivateProduct_Returns204AndHidesItFromTheCatalogue()
-    {
-        await using var factory = new LedgrApiFactory();
-        using var client = factory.CreateClient();
-        var productId = await factory.AddProductAsync("SKU-GONE");
-
-        var delete = await client.DeleteAsync($"/api/products/{productId}");
-        var page = await client.GetFromJsonAsync<PagedResult<ProductDto>>("/api/products");
-
-        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
-        page!.Items.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task GetProduct_WhenMissing_Returns404ProblemDetails()
-    {
-        await using var factory = new LedgrApiFactory();
-        using var client = factory.CreateClient();
-
-        var response = await client.GetAsync("/api/products/4242");
-
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
-    }
-
-    [Fact]
-    public async Task Health_ReturnsOkAndSetsSecurityHeaders()
-    {
-        await using var factory = new LedgrApiFactory();
-        using var client = factory.CreateClient();
-
-        var response = await client.GetAsync("/health");
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        response.Headers.GetValues("X-Content-Type-Options").Should().ContainSingle().Which.Should().Be("nosniff");
-        response.Headers.GetValues("Content-Security-Policy").Should().ContainSingle();
-    }
-
-    [Fact]
-    public async Task UpdateProduct_ReturnsTheUpdatedProduct()
-    {
-        await using var factory = new LedgrApiFactory();
-        using var client = factory.CreateClient();
-        var productId = await factory.AddProductAsync("SKU-EDIT");
-
-        var response = await client.PutAsJsonAsync($"/api/products/{productId}", new
-        {
-            name = "Renamed product",
-            description = "Updated",
-            category = "Hardware",
-            unitPrice = 42.50m,
-            reorderLevel = 4,
-            isActive = true
-        });
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var product = await response.Content.ReadFromJsonAsync<ProductDto>();
-        product!.Name.Should().Be("Renamed product");
-        product.UnitPrice.Should().Be(42.50m);
-        product.Category.Should().Be("Hardware");
-    }
-
-    [Fact]
-    public async Task GetCategories_ReturnsDistinctValuesInOrder()
-    {
-        await using var factory = new LedgrApiFactory();
-        using var client = factory.CreateClient();
-        await factory.AddProductAsync("SKU-C1");
-
-        var categories = await client.GetFromJsonAsync<List<string>>("/api/products/categories");
-
-        categories.Should().NotBeNull();
-        categories.Should().ContainSingle().Which.Should().Be("Tests");
-    }
-
-    [Fact]
-    public async Task AdjustStock_ChangesStockAndAppearsInTheMovementLog()
-    {
-        await using var factory = new LedgrApiFactory();
-        using var client = factory.CreateClient();
-        var productId = await factory.AddProductAsync("SKU-ADJ", stock: 5);
-
-        var response = await client.PostAsJsonAsync("/api/inventory/adjust", new
-        {
-            productId,
-            quantityChange = 3,
-            type = 3,
-            reason = "Cycle count",
-            referenceId = "COUNT-1"
-        });
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var movement = await response.Content.ReadFromJsonAsync<InventoryMovementDto>();
-        movement!.NewQuantity.Should().Be(8);
-
-        var history = await client.GetFromJsonAsync<PagedResult<InventoryMovementDto>>("/api/inventory/movements?page=1&pageSize=5");
-        history!.Items.Should().HaveCount(2);
-        history.Items[0].Type.Should().Be("Adjustment");
-        history.Items[0].ReferenceId.Should().Be("COUNT-1");
-    }
-
-    [Fact]
     public async Task CancelOrder_ReturnsUnitsToStock()
     {
         await using var factory = new LedgrApiFactory();
@@ -281,27 +161,5 @@ public sealed class ApiTests
         page!.TotalCount.Should().Be(1);
         page.Items.Should().ContainSingle();
     }
-
-    [Fact]
-    public async Task GetDashboard_ReturnsAggregates()
-    {
-        await using var factory = new LedgrApiFactory();
-        using var client = factory.CreateClient();
-        await factory.AddProductAsync("SKU-KPI", stock: 4, price: 2.50m);
-
-        var kpis = await client.GetFromJsonAsync<DashboardKpisDto>("/api/dashboard/kpis");
-
-        kpis!.ActiveProducts.Should().Be(1);
-        kpis.InventoryValue.Should().Be(10m);
-        kpis.LowStockAlerts.Should().BeEmpty();
-    }
 }
 
-internal static class HttpRequestExtensions
-{
-    public static HttpRequestMessage WithHeader(this HttpRequestMessage request, string name, string value)
-    {
-        request.Headers.Add(name, value);
-        return request;
-    }
-}
