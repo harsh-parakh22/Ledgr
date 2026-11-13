@@ -99,8 +99,8 @@ dotnet run --project src/Ledgr.Api
 ```
 
 Open your browser:
-- **Web Dashboard:** `http://localhost:5000`
-- **Interactive Swagger OpenAPI:** `http://localhost:5000/swagger`
+- **Web Dashboard:** `http://localhost:5196`
+- **Interactive Swagger OpenAPI:** `http://localhost:5196/swagger`
 
 ---
 
@@ -127,7 +127,7 @@ Passed!  - Failed: 0, Passed: 46, Skipped: 0, Total: 46, Duration: 2 s - Ledgr.T
 Place an order and verify atomic stock deduction in one command:
 
 ```bash
-curl -X POST http://localhost:5000/api/orders \
+curl -X POST http://localhost:5196/api/orders \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: ORD-DEMO-001" \
   -d '{
@@ -144,13 +144,13 @@ curl -X POST http://localhost:5000/api/orders \
 ## 🚀 Production Deployment & Environments
 
 ### Configuration
-Ledgr supports zero-friction local SQLite or enterprise Microsoft SQL Server via `appsettings.json` or Environment Variables:
+Ledgr uses SQLite for zero-friction local development and portable deployments via `appsettings.json` or Environment Variables:
 
 | Environment Variable | Description | Default |
 | :--- | :--- | :--- |
-| `Database__Provider` | Database engine (`Sqlite` or `SqlServer`) | `Sqlite` |
-| `ConnectionStrings__DefaultConnection` | SQL Server / SQLite connection string | `Data Source=ledgr.db` |
+| `Database__ConnectionString` | SQLite connection string | `Data Source=ledgr.db` |
 | `ASPNETCORE_ENVIRONMENT` | Hosting environment (`Development` / `Production`) | `Production` |
+| `Cors__AllowedOrigins__0` | Allowed CORS origin URL | `""` |
 
 ### Running with Docker
 ```bash
