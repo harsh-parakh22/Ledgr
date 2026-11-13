@@ -23,7 +23,7 @@ public static class DatabaseBootstrapper
 
         if (options.Seed)
         {
-            await DbInitializer.SeedAsync(database, cancellationToken);
+            await DatabaseSeeder.SeedAsync(database, cancellationToken);
         }
     }
 }

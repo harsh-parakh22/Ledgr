@@ -1,4 +1,4 @@
-using Ledgr.Api.Dtos;
+using Ledgr.Api.Contracts;
 using Ledgr.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;

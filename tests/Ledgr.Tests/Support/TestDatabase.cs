@@ -1,5 +1,5 @@
 using Ledgr.Api.Data;
-using Ledgr.Api.Models;
+using Ledgr.Api.Domain;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 

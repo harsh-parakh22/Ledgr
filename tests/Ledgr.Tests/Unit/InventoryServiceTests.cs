@@ -1,7 +1,7 @@
 using FluentAssertions;
-using Ledgr.Api.Dtos;
+using Ledgr.Api.Contracts;
+using Ledgr.Api.Domain;
 using Ledgr.Api.Exceptions;
-using Ledgr.Api.Models;
 using Ledgr.Api.Services;
 using Ledgr.Tests.Support;
 using Microsoft.EntityFrameworkCore;

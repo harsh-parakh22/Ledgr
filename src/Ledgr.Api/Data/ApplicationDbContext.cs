@@ -1,4 +1,4 @@
-using Ledgr.Api.Models;
+using Ledgr.Api.Domain;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
