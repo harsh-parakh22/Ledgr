@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
-using Ledgr.Api.Dtos;
+using Ledgr.Api.Contracts;
 
 namespace Ledgr.Tests.Api;
 

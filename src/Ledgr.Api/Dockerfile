@@ -30,3 +30,4 @@ ENV Database__ConnectionString="Data Source=/app/data/ledgr.db"
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "Ledgr.Api.dll"]
+

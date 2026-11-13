@@ -1,4 +1,4 @@
-namespace Ledgr.Api.Models;
+namespace Ledgr.Api.Domain;
 
 public class Product
 {

@@ -1,4 +1,4 @@
-using Ledgr.Api.Dtos;
+using Ledgr.Api.Contracts;
 
 namespace Ledgr.Api.Services;
 

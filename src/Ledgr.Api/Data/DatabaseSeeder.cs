@@ -1,9 +1,9 @@
-using Ledgr.Api.Models;
+using Ledgr.Api.Domain;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ledgr.Api.Data;
 
-public static class DbInitializer
+public static class DatabaseSeeder
 {
     public static async Task SeedAsync(ApplicationDbContext database, CancellationToken cancellationToken = default)
     {

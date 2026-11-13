@@ -1,0 +1,14 @@
+**/.git
+**/.gitignore
+**/.gitattributes
+**/.vs
+**/.vscode
+**/bin
+**/obj
+**/TestResults
+**/coverage.json
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/logs
+**/.idea

@@ -1,12 +1,12 @@
 using FluentAssertions;
 using Ledgr.Api.Data;
-using Ledgr.Api.Models;
+using Ledgr.Api.Domain;
 using Ledgr.Tests.Support;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ledgr.Tests;
 
-public sealed class DbInitializerTests
+public sealed class DatabaseSeederTests
 {
     [Fact]
     public async Task SeedAsync_CreatesTheCatalogueWithOpeningMovements()
@@ -14,7 +14,7 @@ public sealed class DbInitializerTests
         using var database = new TestDatabase();
         await using var context = database.CreateContext();
 
-        await DbInitializer.SeedAsync(context);
+        await DatabaseSeeder.SeedAsync(context);
 
         var products = await context.Products.AsNoTracking().ToListAsync();
         var movements = await context.InventoryMovements.AsNoTracking().ToListAsync();
@@ -32,7 +32,7 @@ public sealed class DbInitializerTests
         await database.AddProductAsync("SKU-EXISTING");
 
         await using var context = database.CreateContext();
-        await DbInitializer.SeedAsync(context);
+        await DatabaseSeeder.SeedAsync(context);
 
         (await context.Products.CountAsync()).Should().Be(1);
     }

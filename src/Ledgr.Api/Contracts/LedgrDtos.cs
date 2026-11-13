@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
-using Ledgr.Api.Models;
+using Ledgr.Api.Domain;
 
-namespace Ledgr.Api.Dtos;
+namespace Ledgr.Api.Contracts;
 
 public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount)
 {

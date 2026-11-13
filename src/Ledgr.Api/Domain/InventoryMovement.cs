@@ -1,6 +1,6 @@
 using Ledgr.Api.Exceptions;
 
-namespace Ledgr.Api.Models;
+namespace Ledgr.Api.Domain;
 
 public class InventoryMovement
 {
