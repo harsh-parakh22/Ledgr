@@ -26,3 +26,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial project scaffolding: Solution file, ASP.NET Core Web API, and xUnit test harness.
 - Pre-development specification documents and repository setup.
+

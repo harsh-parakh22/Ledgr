@@ -22,3 +22,4 @@ We take the security of **Ledgr** seriously. If you discover a security vulnerab
    - Any suggested remediations or mitigations.
 3. You will receive an acknowledgment within **48 hours**.
 4. We will coordinate a patch, verify it through the test suite, and issue a patch release alongside a security advisory.
+
