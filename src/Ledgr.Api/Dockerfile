@@ -19,10 +19,13 @@ RUN dotnet publish -c Release -o /app/publish --no-restore
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 
+# Ensure data directory exists and is owned by the non-root app user for SQLite writes
+RUN mkdir -p /app/data && chown -R app:app /app/data
+
 # Non-root user for security best practice
 USER app
 
-COPY --from=build /app/publish .
+COPY --chown=app:app --from=build /app/publish .
 
 ENV ASPNETCORE_URLS=http://+:8080
 ENV Database__ConnectionString="Data Source=/app/data/ledgr.db"

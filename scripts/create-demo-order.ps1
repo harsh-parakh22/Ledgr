@@ -7,7 +7,7 @@ Write-Host "Checking health of $baseUrl..." -ForegroundColor Cyan
 
 try {
     $kpis = Invoke-RestMethod -Uri "$baseUrl/api/dashboard/kpis" -Method Get
-    Write-Host "Connected! Current inventory value: `$$($kpis.totalInventoryValue), Total products: $($kpis.totalProducts)" -ForegroundColor Green
+    Write-Host "Connected! Current inventory value: `$$($kpis.inventoryValue), Active products: $($kpis.activeProducts)" -ForegroundColor Green
 
     # Create a demo product
     $sku = "DEMO-SAMPLE-$((Get-Random -Minimum 1000 -Maximum 9999))"
