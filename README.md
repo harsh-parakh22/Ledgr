@@ -87,7 +87,7 @@ Open your browser:
 
 ## Testing & Quality Assurance
 
-Ledgr was built using strict **Test-Driven Development (TDD)** with 100% invariant verification across boundary conditions:
+Ledgr was built using strict **Test-Driven Development (TDD)** with thorough invariant coverage across boundary conditions:
 
 ```bash
 # Run complete test suite (automated unit & integration tests)
